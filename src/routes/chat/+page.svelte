@@ -13,6 +13,9 @@
   import { getDb } from "$lib/db";
   import { duplicateTemplate } from "$lib/db/templates";
   import { downloadTextFile } from "$lib/ui/download";
+  import { pickJsonFile } from "$lib/ui/file";
+  import { importTemplatesMergeById } from "$lib/db/import_export";
+
 
 
   let templates: Template[] = [];
@@ -202,6 +205,28 @@ async function onExport() {
   showToast("Exported");
 }
 
+async function onImport() {
+  try {
+    const payload = await pickJsonFile();
+    const res = await importTemplatesMergeById(payload);
+    await refreshTemplates();
+
+    // If no selection, select first template after import
+    if (!selectedId && templates.length > 0) {
+      await onSelect(templates[0].id);
+    } else if (selectedId) {
+      // reload current selection in case it got updated
+      await loadSelected();
+    }
+
+    showToast(`Imported: +${res.inserted} / updated ${res.updated} / skipped ${res.skipped}`);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    showToast(`Import failed: ${msg}`);
+  }
+}
+
+
   onMount(async () => {
     await refreshTemplates();
 
@@ -376,6 +401,7 @@ async function onExport() {
   <div class="row">
     <button type="button" on:click={onDuplicate} disabled={!selectedId}>Duplicate</button>
     <button type="button" on:click={onExport} disabled={templates.length === 0}>Export JSON</button>
+    <button type="button" on:click={onImport}>Import JSON</button>
     <button type="button" on:click={applyDefaults} disabled={tokens.length === 0}>Apply defaults</button>
     <button type="button" on:click={copy} disabled={!preview.trim()}>Copy</button>
   </div>
