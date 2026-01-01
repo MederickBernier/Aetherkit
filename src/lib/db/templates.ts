@@ -42,3 +42,24 @@ export async function toggleFavorite(id: string): Promise<void> {
   if (!t) return;
   await updateTemplate(id, { favorite: !t.favorite });
 }
+
+export async function duplicateTemplate(id: string): Promise<string> {
+  const db = getDb();
+  const t = await db.templates.get(id);
+  if (!t) throw new Error("Template not found");
+
+  const now = Date.now();
+  const newId = crypto.randomUUID();
+
+  await db.templates.add({
+    ...t,
+    id: newId,
+    name: `${t.name} (copy)`,
+    favorite: false,
+    createdAt: now,
+    updatedAt: now
+  });
+
+  return newId;
+}
+

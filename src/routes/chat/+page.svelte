@@ -11,6 +11,9 @@
     toggleFavorite
   } from "$lib/db/templates";
   import { getDb } from "$lib/db";
+  import { duplicateTemplate } from "$lib/db/templates";
+  import { downloadTextFile } from "$lib/ui/download";
+
 
   let templates: Template[] = [];
   let selectedId: string | null = null;
@@ -78,7 +81,7 @@
     });
   }
 
-  $: preview = selected ? renderTemplate(selected.content, tokenValues) : "";
+$: preview = selected ? renderTemplate(selected.content, tokenValues, "preview") : "";
 
   async function onSelect(id: string) {
     selectedId = id;
@@ -142,10 +145,12 @@
     showToast("Defaults applied");
   }
 
-  async function copy() {
-    await copyToClipboard(preview);
-    showToast("Copied ✅");
-  }
+async function copy() {
+  const finalText = selected ? renderTemplate(selected.content, tokenValues, "final") : "";
+  await copyToClipboard(finalText);
+  showToast("Copied ✅");
+}
+
 
   // Helper for "pseudo-button" actions inside a clickable template row
   function actionKeyActivate(e: KeyboardEvent, fn: () => void) {
@@ -155,6 +160,47 @@
       fn();
     }
   }
+
+  let contentSaveTimer: ReturnType<typeof setTimeout> | null = null;
+
+function debouncedSaveContent(value: string) {
+  if (!selected) return;
+
+  // Update UI immediately (smooth typing)
+  selected = { ...selected, content: value } as Template;
+
+  // Reset timer
+  if (contentSaveTimer) clearTimeout(contentSaveTimer);
+
+  // Save + retokenize after pause
+  contentSaveTimer = setTimeout(async () => {
+    await onSaveField("content", value);
+  }, 250);
+}
+
+async function onDuplicate() {
+  if (!selectedId) return;
+  const newId = await duplicateTemplate(selectedId);
+  await refreshTemplates();
+  await onSelect(newId);
+  showToast("Duplicated");
+}
+
+async function onExport() {
+  // export all templates
+  const db = getDb();
+  const all = await db.templates.toArray();
+
+  const payload = {
+    schema: "aetherkit.templates.export",
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    templates: all
+  };
+
+  downloadTextFile("aetherkit-templates.json", JSON.stringify(payload, null, 2));
+  showToast("Exported");
+}
 
   onMount(async () => {
     await refreshTemplates();
@@ -325,13 +371,15 @@
   <!-- RIGHT: Editor -->
   <div class="card">
     {#if selected}
-      <div class="row">
-        <strong>Edit</strong>
-        <div class="row">
-          <button type="button" on:click={applyDefaults} disabled={tokens.length === 0}>Apply defaults</button>
-          <button type="button" on:click={copy} disabled={!preview.trim()}>Copy</button>
-        </div>
-      </div>
+<div class="row">
+  <strong>Edit</strong>
+  <div class="row">
+    <button type="button" on:click={onDuplicate} disabled={!selectedId}>Duplicate</button>
+    <button type="button" on:click={onExport} disabled={templates.length === 0}>Export JSON</button>
+    <button type="button" on:click={applyDefaults} disabled={tokens.length === 0}>Apply defaults</button>
+    <button type="button" on:click={copy} disabled={!preview.trim()}>Copy</button>
+  </div>
+</div>
 
       <div style="margin-top: 10px;">
         <label>
@@ -362,8 +410,8 @@
         <label>
           Content
           <textarea
-            on:input={(e) => onSaveField("content", (e.currentTarget as HTMLTextAreaElement).value)}
-          >{selected.content}</textarea>
+  on:input={(e) => debouncedSaveContent((e.currentTarget as HTMLTextAreaElement).value)}
+>{selected.content}</textarea>
         </label>
       </div>
 

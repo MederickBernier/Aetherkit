@@ -9,9 +9,14 @@ export function extractTokens(content:string):string[]{
     return [...found].sort((a,b)=>a.localeCompare(b));
 }
 
-export function renderTemplate(content:string, tokens:Record<string,string>):string{
-    return content.replace(TOKEN_REGEX, (full, tokenName)=>{
-        const v = tokens[tokenName];
-        return v === undefined ? full : v;
-    })
+export function renderTemplate(
+  input: string,
+  values: Record<string, string>,
+  mode: "preview" | "final" = "preview"
+): string {
+  return input.replace(/\{([a-zA-Z0-9_]+)\}/g, (_m, key: string) => {
+    const v = (values[key] ?? "").trim();
+    if (v) return v;
+    return mode === "preview" ? `[${key}]` : "";
+  });
 }
