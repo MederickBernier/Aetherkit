@@ -21,10 +21,18 @@ function isExportV1(x: any): x is TemplatesExportV1 {
 export type ImportResult = {
   inserted: number;
   updated: number;
+  keptLocal: number;
   skipped: number;
 };
 
-export async function importTemplatesMergeById(
+function tsOf(t: Partial<Template> | undefined | null): number {
+  if (!t) return 0;
+  const u = typeof t.updatedAt === "number" ? t.updatedAt : 0;
+  const c = typeof t.createdAt === "number" ? t.createdAt : 0;
+  return u || c || 0;
+}
+
+export async function importTemplatesKeepNewestById(
   payload: unknown,
   opts?: { importSettings?: boolean }
 ): Promise<ImportResult> {
@@ -39,45 +47,55 @@ export async function importTemplatesMergeById(
 
   let inserted = 0;
   let updated = 0;
+  let keptLocal = 0;
   let skipped = 0;
 
   await db.transaction("rw", db.templates, db.settings, async () => {
-    for (const t of payload.templates) {
-      // Minimal shape check to avoid garbage
-      if (!t?.id || typeof t.id !== "string") {
+    for (const incoming of payload.templates) {
+      if (!incoming?.id || typeof incoming.id !== "string") {
         skipped++;
         continue;
       }
 
-      const existing = await db.templates.get(t.id);
+      const existing = await db.templates.get(incoming.id);
 
       if (!existing) {
-        // Insert: trust import data, but ensure timestamps exist
+        // Insert: ensure timestamps exist
         await db.templates.add({
-          ...t,
-          createdAt: t.createdAt ?? now,
-          updatedAt: now
+          ...incoming,
+          createdAt: incoming.createdAt ?? now,
+          updatedAt: incoming.updatedAt ?? now
         });
         inserted++;
-      } else {
-        // Update: merge-by-id
-        // Policy: keep local createdAt (historical), update everything else from import
+        continue;
+      }
+
+      const localTs = tsOf(existing);
+      const incomingTs = tsOf(incoming);
+
+      if (incomingTs > localTs) {
+        // Incoming wins: overwrite, but preserve local createdAt if it exists
         await db.templates.put({
           ...existing,
-          ...t,
-          createdAt: existing.createdAt ?? t.createdAt ?? now,
-          updatedAt: now
+          ...incoming,
+          createdAt: existing.createdAt ?? incoming.createdAt ?? now,
+          updatedAt: incoming.updatedAt ?? now
         });
         updated++;
+      } else if (localTs > incomingTs) {
+        // Local wins: keep
+        keptLocal++;
+      } else {
+        // Same timestamp (or both missing)
+        skipped++;
       }
     }
 
     // Optional future: import settings. Default off.
     if (importSettings && (payload as any).settings) {
-      // If you ever add settings to export, handle it here.
-      // For now: noop.
+      // noop for now
     }
   });
 
-  return { inserted, updated, skipped };
+  return { inserted, updated, keptLocal, skipped };
 }

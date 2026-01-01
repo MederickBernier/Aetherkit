@@ -14,7 +14,7 @@
   import { duplicateTemplate } from "$lib/db/templates";
   import { downloadTextFile } from "$lib/ui/download";
   import { pickJsonFile } from "$lib/ui/file";
-  import { importTemplatesMergeById } from "$lib/db/import_export";
+  import { importTemplatesKeepNewestById } from "$lib/db/import_export";
 
 
 
@@ -208,18 +208,16 @@ async function onExport() {
 async function onImport() {
   try {
     const payload = await pickJsonFile();
-    const res = await importTemplatesMergeById(payload);
-    await refreshTemplates();
+    const res = await importTemplatesKeepNewestById(payload);
 
-    // If no selection, select first template after import
+    await refreshTemplates();
     if (!selectedId && templates.length > 0) {
       await onSelect(templates[0].id);
     } else if (selectedId) {
-      // reload current selection in case it got updated
       await loadSelected();
     }
 
-    showToast(`Imported: +${res.inserted} / updated ${res.updated} / skipped ${res.skipped}`);
+    showToast(`Imported +${res.inserted}, updated ${res.updated}, kept local ${res.keptLocal}, skipped ${res.skipped}`);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     showToast(`Import failed: ${msg}`);
